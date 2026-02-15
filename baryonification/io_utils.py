@@ -161,7 +161,9 @@ class IO_nbody:
             y = np.mod(y, Lbox)
             z = np.mod(z, Lbox)
 
-            # Comoving box mass check: M = Om * RHOC * Lbox^3.
+            dm_mass = np.full(Ndm, m_eff, dtype=np.float64)
+
+            # Comoving box mass check: use Ndm * m_eff (not sum of mass array).
             M_catalog = Ndm * m_eff
             M_expected = param.cosmo.Om * RHOC * Lbox**3
             rel_diff = np.abs(M_catalog - M_expected) / max(M_expected, 1e-30)
@@ -179,7 +181,7 @@ class IO_nbody:
 
             p_dt = np.dtype([('mass','>f'),("x",'>f'),("y",'>f'),("z",'>f'),("vx",'>f'),("vy",'>f'),("vz",'>f'),("eps",'>f'),("phi",'>f')])
             p_dm = np.zeros(Ndm,dtype=p_dt)
-            p_dm['mass'] = np.float32(m_eff)
+            p_dm['mass'] = dm_mass.astype(np.float32)
             p_dm['x'], p_dm['y'], p_dm['z'] = x.astype(np.float32), y.astype(np.float32), z.astype(np.float32)
             p_dm['vx'], p_dm['vy'], p_dm['vz'] = vx.astype(np.float32), vy.astype(np.float32), vz.astype(np.float32)
             p_dm['phi'] = phi.astype(np.float32)
