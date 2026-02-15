@@ -68,6 +68,32 @@ part_displ.displace()
     
 All model parameters are defined in baryonification/params.py.
 
+## HDF5 Catalog Input
+
+You can provide a custom DM particle catalog in HDF5 by setting:
+
+```python
+par.files.partfile_format = "hdf5"   # or "catalog-hdf5"
+par.files.partfile_in = "path/to/catalog.hdf5"
+par.files.partfile_out = "path/to/baryonified_catalog.hdf5"
+```
+
+Accepted input layout:
+
+- A `dm` group (preferred) or root-level datasets.
+- Required datasets: `x`, `y`, `z` (in comoving `Mpc/h`).
+- Optional datasets: `vx`, `vy`, `vz` (if missing, set to zero), `phi`.
+- Required DM mass as one scalar value:
+  - preferred: `dm.attrs["effective_particle_mass"]`
+  - also accepted: scalar `dm.attrs["mass"]` or scalar dataset `dm["mass"]`
+  - per-particle DM mass arrays are rejected.
+
+At read time, the code prints a consistency check using:
+
+`M_catalog = Npart * m_eff` and `M_expected = Om * RHOC * Lbox^3`
+
+with a warning if the relative mismatch exceeds 5%.
+
 Analytical profiles can be obtained directly without the need to baryonify. Here is a minimal example:
 
 ```python
@@ -119,5 +145,4 @@ plt.show()
 ## Contact
 
 Please contact Aurel Schneider (aurel.schneider@uzh.ch) for questions, remarks, bugs etc.
-
 

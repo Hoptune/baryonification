@@ -26,7 +26,7 @@ class IO_nbody:
     def read(self):
         """
         Read in N-body output, adopt units, and build chunks (for multi-processor mode).
-        Only supports tipsy file format for the moment.
+        Supports tipsy, TNG, and user-supplied HDF5 catalogs.
         """
         param = self.param
         cosmo = self.cosmo
@@ -78,6 +78,113 @@ class IO_nbody:
             p_dm['phi'] = dm_pot
             print('Reading hdf5 file from IllustrisTNG done!')
 
+        elif (nbody_file_format=='hdf5' or nbody_file_format=='catalog-hdf5'):
+            try:
+                import h5py
+            except ImportError:
+                print('IOERROR: h5py is required for partfile_format=hdf5.')
+                print('Install with: pip install h5py')
+                exit()
+
+            try:
+                with h5py.File(nbody_file_in, 'r') as f:
+                    # Accept either root datasets or a dedicated DM group.
+                    g = f['dm'] if 'dm' in f else f
+
+                    missing = [name for name in ['x', 'y', 'z'] if name not in g]
+                    if len(missing) > 0:
+                        print('IOERROR: Missing required HDF5 datasets:', missing)
+                        print('Required: x, y, z and scalar effective_particle_mass.')
+                        exit()
+
+                    x = np.asarray(g['x'], dtype=np.float64)
+                    y = np.asarray(g['y'], dtype=np.float64)
+                    z = np.asarray(g['z'], dtype=np.float64)
+                    Ndm = len(x)
+                    if (len(y) != Ndm) or (len(z) != Ndm):
+                        print('IOERROR: x, y, z must have identical lengths.')
+                        exit()
+                    if Ndm < 1:
+                        print('IOERROR: HDF5 catalog contains zero DM particles.')
+                        exit()
+
+                    # Velocities are optional (not needed for displacement); keep if present.
+                    has_v = ('vx' in g) and ('vy' in g) and ('vz' in g)
+                    if has_v:
+                        vx = np.asarray(g['vx'], dtype=np.float64)
+                        vy = np.asarray(g['vy'], dtype=np.float64)
+                        vz = np.asarray(g['vz'], dtype=np.float64)
+                        if (len(vx) != Ndm) or (len(vy) != Ndm) or (len(vz) != Ndm):
+                            print('IOERROR: vx, vy, vz must have identical lengths to x.')
+                            exit()
+                    else:
+                        vx = np.zeros(Ndm, dtype=np.float64)
+                        vy = np.zeros(Ndm, dtype=np.float64)
+                        vz = np.zeros(Ndm, dtype=np.float64)
+                        print('WARNING: Missing vx/vy/vz. Filling with zeros.')
+
+                    if 'phi' in g:
+                        phi = np.asarray(g['phi'], dtype=np.float64)
+                        if len(phi) != Ndm:
+                            print('IOERROR: phi length must match x length.')
+                            exit()
+                    else:
+                        phi = np.zeros(Ndm, dtype=np.float64)
+
+                    # DM mass should be a single effective value.
+                    if 'effective_particle_mass' in g.attrs:
+                        m_eff = float(g.attrs['effective_particle_mass'])
+                    elif 'mass' in g.attrs:
+                        m_eff = float(g.attrs['mass'])
+                    elif 'mass' in g:
+                        mass_in = np.asarray(g['mass'], dtype=np.float64)
+                        if mass_in.ndim == 0 or mass_in.size == 1:
+                            m_eff = float(mass_in.reshape(-1)[0])
+                        else:
+                            print('IOERROR: DM mass must be a single float, not a per-particle array.')
+                            print('Use dm.attrs["effective_particle_mass"] (or scalar dataset "mass").')
+                            exit()
+                    else:
+                        print('IOERROR: Missing scalar DM mass.')
+                        print('Use dm.attrs["effective_particle_mass"] or scalar dataset "mass".')
+                        exit()
+            except OSError:
+                print('IOERROR: Cannot read user-supplied HDF5 catalog!')
+                print('Define par.files.partfile_in = "/path/to/catalog.hdf5"')
+                exit()
+
+            if m_eff <= 0.0:
+                print('IOERROR: effective_particle_mass must be > 0.')
+                exit()
+
+            x = np.mod(x, Lbox)
+            y = np.mod(y, Lbox)
+            z = np.mod(z, Lbox)
+
+            # Comoving box mass check: M = Om * RHOC * Lbox^3.
+            M_catalog = Ndm * m_eff
+            M_expected = param.cosmo.Om * RHOC * Lbox**3
+            rel_diff = np.abs(M_catalog - M_expected) / max(M_expected, 1e-30)
+            print('Catalog mass check: Npart = {}, m_eff = {:.6e} Msun/h'.format(Ndm, m_eff))
+            print('Catalog mass check: M_catalog = {:.6e}, M_expected = {:.6e}, rel.diff = {:.3%}'.format(M_catalog, M_expected, rel_diff))
+            if rel_diff > 0.05:
+                print('WARNING: (Npart, m_eff) and (Om, Lbox) mismatch by more than 5%.')
+
+            p_header_dt = np.dtype([('a','>d'),('Npart','>u4'),('dim','>u4'),('Ngas','>u4'),('Ndm','>u4'),('Nstar','>u4'),('buffer','>u4')])
+            p_header = np.zeros(1,dtype=p_header_dt)
+            p_header['a'] = 1.0 / (1.0 + param.cosmo.z)
+            p_header['Npart'] = Ndm
+            p_header['Ndm'] = Ndm
+            p_header['dim'] = int(3)
+
+            p_dt = np.dtype([('mass','>f'),("x",'>f'),("y",'>f'),("z",'>f'),("vx",'>f'),("vy",'>f'),("vz",'>f'),("eps",'>f'),("phi",'>f')])
+            p_dm = np.zeros(Ndm,dtype=p_dt)
+            p_dm['mass'] = np.float32(m_eff)
+            p_dm['x'], p_dm['y'], p_dm['z'] = x.astype(np.float32), y.astype(np.float32), z.astype(np.float32)
+            p_dm['vx'], p_dm['vy'], p_dm['vz'] = vx.astype(np.float32), vy.astype(np.float32), vz.astype(np.float32)
+            p_dm['phi'] = phi.astype(np.float32)
+            print('Reading user-supplied HDF5 catalog done!')
+
         elif (nbody_file_format=='gadget'):
             print('Reading gadget files not implemented. Exit!')
             exit()
@@ -111,7 +218,7 @@ class IO_nbody:
 
     def write(self, p_header, p_gas, p_dm, p_star):
         """
-        Combine chunks and write N-body outputs with displaced particles. Only tipsy file format for the moment.
+        Combine chunks and write N-body outputs with displaced particles.
         """
         param = self.param
         cosmo = self.cosmo
@@ -202,6 +309,63 @@ class IO_nbody:
         elif (nbody_file_format=='gadget'):
             print('Writing gadget files not implemented. Exit!')
             exit()
+
+        elif (nbody_file_format=='hdf5' or nbody_file_format=='catalog-hdf5'):
+            try:
+                import h5py
+            except ImportError:
+                print('IOERROR: h5py is required for partfile_format=hdf5.')
+                print('Install with: pip install h5py')
+                exit()
+
+            def _write_common(group, part):
+                group.create_dataset('x', data=part['x'].astype(np.float32))
+                group.create_dataset('y', data=part['y'].astype(np.float32))
+                group.create_dataset('z', data=part['z'].astype(np.float32))
+                group.create_dataset('vx', data=part['vx'].astype(np.float32))
+                group.create_dataset('vy', data=part['vy'].astype(np.float32))
+                group.create_dataset('vz', data=part['vz'].astype(np.float32))
+                if 'phi' in part.dtype.names:
+                    group.create_dataset('phi', data=part['phi'].astype(np.float32))
+                group.attrs['Npart'] = int(len(part))
+
+            try:
+                with h5py.File(nbody_file_out, 'w') as f:
+                    f.attrs['format'] = 'baryonification-catalog-hdf5'
+                    f.attrs['Lbox'] = Lbox
+                    f.attrs['z'] = param.cosmo.z
+                    f.attrs['Om'] = param.cosmo.Om
+                    f.attrs['Ob'] = param.cosmo.Ob
+                    f.attrs['h0'] = param.cosmo.h0
+
+                    g_dm = f.create_group('dm')
+                    _write_common(g_dm, p_dm)
+                    if len(p_dm) > 0:
+                        m_eff_dm = float(np.mean(p_dm['mass']))
+                        rel_scatter = np.std(p_dm['mass']) / max(np.abs(m_eff_dm), 1e-30)
+                        if rel_scatter > 1e-6:
+                            print('WARNING: DM masses are not uniform; writing mean as effective_particle_mass.')
+                        g_dm.attrs['effective_particle_mass'] = m_eff_dm
+                    else:
+                        g_dm.attrs['effective_particle_mass'] = 0.0
+
+                    g_gas = f.create_group('gas')
+                    _write_common(g_gas, p_gas)
+                    g_gas.create_dataset('mass', data=p_gas['mass'].astype(np.float32))
+                    if 'temp' in p_gas.dtype.names:
+                        g_gas.create_dataset('temp', data=p_gas['temp'].astype(np.float32))
+                    if 'pres' in p_gas.dtype.names:
+                        g_gas.create_dataset('pres', data=p_gas['pres'].astype(np.float32))
+
+                    g_star = f.create_group('star')
+                    _write_common(g_star, p_star)
+                    g_star.create_dataset('mass', data=p_star['mass'].astype(np.float32))
+            except OSError:
+                print('IOERROR: Cannot write HDF5 catalog output file!')
+                print('Define par.files.partfile_out = "/path/to/output.hdf5"')
+                exit()
+
+            print('Writing HDF5 catalog output done!')
 
         else:
             print('Unknown file format. Exit!')
