@@ -181,7 +181,8 @@ class HaloDisplacer:
                     cosmo_var  = splev(h_chunk['Mvir'][i],var_tck)
                     cosmo_bias = splev(h_chunk['Mvir'][i],bias_tck)
                     cosmo_corr = splev(rbin,corr_tck)
-                    frac, dens, mass, pres, temp = profiles(rbin,h_chunk['Mvir'][i],h_chunk['cvir'][i],cosmo_corr,cosmo_bias,cosmo_var,self.param)
+                    profile_model = Profiles(rbin, h_chunk['Mvir'][i], h_chunk['cvir'][i], cosmo_corr, cosmo_bias, cosmo_var, self.param)
+                    frac, dens, mass, pres, temp = profile_model.calc_profiles()
 
                     #collisional (final) matter displacement
                     #DDMB = displ(rbin,mass['DMO'],mass['DMB'])

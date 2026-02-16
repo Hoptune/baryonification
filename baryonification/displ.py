@@ -146,7 +146,7 @@ class ParticleDisplacer:
         vc_r, vc_m, vc_var, vc_bias, vc_corr = cosmo.compute_cosmology()
         var_tck  = splrep(vc_m, vc_var, s=0)
         bias_tck = splrep(vc_m, vc_bias, s=0)
-        corr_tck = splrep(vc_r, vc_corr, s=0)    
+        corr_tck = splrep(vc_r, vc_corr, s=0)
         
         #Read cosmic variance/nu/correlation and interpolate
         #cosmofile = self.param.files.cosmofct
@@ -587,9 +587,9 @@ class ParticleDisplacer:
             p_gas_chunk['x'] = p_gas_temporary_chunk['x']
             p_gas_chunk['y'] = p_gas_temporary_chunk['y']
             p_gas_chunk['z'] = p_gas_temporary_chunk['z']
-            p_gas_chunk['vx'] = p_gas_temporary_chunk['x']
-            p_gas_chunk['vy'] = p_gas_temporary_chunk['y']
-            p_gas_chunk['vz'] = p_gas_temporary_chunk['z']
+            p_gas_chunk['vx'] = p_gas_temporary_chunk['vx']
+            p_gas_chunk['vy'] = p_gas_temporary_chunk['vy']
+            p_gas_chunk['vz'] = p_gas_temporary_chunk['vz']
             p_gas_chunk['mass'] = p_gas_temporary_chunk['mass']
             p_gas_chunk['phi'] = p_gas_temporary_chunk['phi']
         

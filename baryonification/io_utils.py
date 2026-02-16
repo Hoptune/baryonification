@@ -385,7 +385,7 @@ class IO_halo:
     def read(self):
         """
         Read in halo file, adopt units, build buffer around chunks (for multi-processor mode).
-        Select for hosts with more than 100 particles. Restricted to AHF for the moment.
+        Select for hosts with more than 100 particles.
         """
         param = self.param
         halo_file_in = param.files.halofile_in
@@ -454,6 +454,71 @@ class IO_halo:
             h = h[h['Mvir']>param.code.Mhalo_min]
             print('Nhalo = ',len(h['Mvir']))
 
+        elif (halo_file_format=='hdf5' or halo_file_format=='catalog-hdf5' or halo_file_format=='halo-hdf5'):
+            try:
+                import h5py
+            except ImportError:
+                print('IOERROR: h5py is required for halofile_format=hdf5.')
+                print('Install with: pip install h5py')
+                exit()
+
+            try:
+                with h5py.File(halo_file_in, 'r') as f:
+                    g = f['halo'] if 'halo' in f else f
+
+                    def _as_1d(name, dtype):
+                        if name not in g:
+                            print("IOERROR: Missing required HDF5 halo dataset '{}'.".format(name))
+                            exit()
+                        arr = np.asarray(g[name], dtype=dtype)
+                        if arr.ndim != 1:
+                            print("IOERROR: HDF5 halo dataset '{}' must be 1D.".format(name))
+                            exit()
+                        return arr
+
+                    ID = _as_1d('ID', np.int64)
+                    IDhost = _as_1d('IDhost', np.int64)
+                    Mvir = _as_1d('Mvir', np.float64)
+                    x = _as_1d('x', np.float64)
+                    y = _as_1d('y', np.float64)
+                    z = _as_1d('z', np.float64)
+                    rvir = _as_1d('rvir', np.float64)
+                    cvir = _as_1d('cvir', np.float64)
+
+                    Nhalo = len(Mvir)
+                    if (len(ID) != Nhalo) or (len(IDhost) != Nhalo) or (len(x) != Nhalo) or \
+                       (len(y) != Nhalo) or (len(z) != Nhalo) or (len(rvir) != Nhalo) or (len(cvir) != Nhalo):
+                        print('IOERROR: Halo datasets ID/IDhost/Mvir/x/y/z/rvir/cvir must have identical lengths.')
+                        exit()
+                    if Nhalo < 1:
+                        print('IOERROR: HDF5 halo catalog contains zero halos.')
+                        exit()
+            except OSError:
+                print('IOERROR: Cannot read user-supplied HDF5 halo catalog!')
+                print('Define par.files.halofile_in = "/path/to/halo_catalog.hdf5"')
+                exit()
+
+            x = np.mod(x, Lbox)
+            y = np.mod(y, Lbox)
+            z = np.mod(z, Lbox)
+
+            h_dt = np.dtype([('ID', '<i8'), ('IDhost', '<i8'), ('Mvir', '<f8'),
+                             ('x', '<f8'), ('y', '<f8'), ('z', '<f8'),
+                             ('rvir', '<f8'), ('cvir', '<f8')])
+            h = np.zeros(Nhalo, dtype=h_dt)
+            h['ID'] = ID
+            h['IDhost'] = IDhost
+            h['Mvir'] = Mvir
+            h['x'], h['y'], h['z'] = x, y, z
+            h['rvir'] = rvir
+            h['cvir'] = cvir
+
+            gID  = np.where(np.isfinite(h['cvir']) & (h['cvir'] > 0))
+            h = h[gID]
+            h = h[h['Mvir']>param.code.Mhalo_min]
+            print('Reading user-supplied HDF5 halo catalog done!')
+            print('Nhalo = ',len(h['Mvir']))
+
         else:
             print('Unknown halo file format. Exit!')
             exit()
@@ -513,7 +578,6 @@ class IO_halo:
         h = h[h['x']>=0]
         h = h[h['y']>=0]
         h = h[h['z']>=0]
-        halo_file_format = 'AHF-ASCII'
 
         if (halo_file_format=='AHF-ASCII'):
             h_dt = np.dtype([('ID', '<i8'), ('IDhost', '<i8'), ('numSubStruc', '<i8'), ('Mvir', '<f8'), ('Nvir', '<f8'),
@@ -556,8 +620,50 @@ class IO_halo:
             h_out['rvir']   = h['rvir']*1000.0
             h_out['cvir']   = h['cvir']
             np.savetxt(halo_file_out, h_out, delimiter='\t', newline='\n', header=header, comments='# ', encoding=None)
-            
+
+        elif (halo_file_format=='hdf5' or halo_file_format=='catalog-hdf5' or halo_file_format=='halo-hdf5'):
+            try:
+                import h5py
+            except ImportError:
+                print('IOERROR: h5py is required for halofile_format=hdf5.')
+                print('Install with: pip install h5py')
+                exit()
+
+            try:
+                with h5py.File(halo_file_out, 'w') as f:
+                    f.attrs['format'] = 'baryonification-halo-catalog-hdf5'
+                    f.attrs['Lbox'] = Lbox
+                    f.attrs['z'] = param.cosmo.z
+                    f.attrs['Om'] = param.cosmo.Om
+                    f.attrs['Ob'] = param.cosmo.Ob
+                    f.attrs['h0'] = param.cosmo.h0
+
+                    g = f.create_group('halo')
+                    g.attrs['units_length'] = 'Mpc/h'
+                    g.attrs['units_mass'] = 'Msun/h'
+
+                    required_fields = ('ID', 'IDhost', 'Mvir', 'x', 'y', 'z', 'rvir', 'cvir')
+                    missing = [name for name in required_fields if name not in h.dtype.names]
+                    if len(missing) > 0:
+                        print('IOERROR: Halo array is missing required fields for HDF5 output:', missing)
+                        exit()
+
+                    g.create_dataset('ID', data=h['ID'].astype(np.int64))
+                    g.create_dataset('IDhost', data=h['IDhost'].astype(np.int64))
+                    g.create_dataset('Mvir', data=h['Mvir'].astype(np.float64))
+                    g.create_dataset('x', data=h['x'].astype(np.float64))
+                    g.create_dataset('y', data=h['y'].astype(np.float64))
+                    g.create_dataset('z', data=h['z'].astype(np.float64))
+                    g.create_dataset('rvir', data=h['rvir'].astype(np.float64))
+                    g.create_dataset('cvir', data=h['cvir'].astype(np.float64))
+            except OSError:
+                print('IOERROR: Cannot write HDF5 halo catalog output file!')
+                print('Define par.files.halofile_out = "/path/to/output_halo_catalog.hdf5"')
+                exit()
+
+            print('Writing HDF5 halo catalog output done!')
+
         else:
-            print("Try: halo_file_format==AHF-ASCII. No other formats implemented")
+            print("Try: halo_file_format in ['AHF-ASCII', 'hdf5']. No other formats implemented")
             exit()
         return

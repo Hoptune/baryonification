@@ -276,7 +276,7 @@ class Profiles:
 
         #Adiabatic Correction Model 0 (Abadi et al 2010)
         if (self.param.code.AC_model==0):
-            nn = self.ACM_q0 * (1+self.z)**self.ACM_q0_exp #nn = 1 corresponds to Gnedin 2004
+            nn = ACM_q0 * (1 + self.z)**ACM_q0_exp #nn = 1 corresponds to Gnedin 2004
             aa = ACM_q1 * (1+self.z)**ACM_q1_exp
             func = lambda x: (x-1.0) - aa*(((MNFW + M2h)/((fcdm+fsga)*MNFW + fcga*splev(x*self.rbin,MCGA_tck,der=0,ext=3) + fhga*splev(x*self.rbin,MHGA_tck,der=0,ext=3) + figa*splev(x*self.rbin,MIGA_tck,der=0,ext=3) + splev(x*self.rbin,M2h_tck,der=0,ext=3)))**nn - 1.0)
 
