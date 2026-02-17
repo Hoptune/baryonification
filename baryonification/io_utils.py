@@ -195,21 +195,55 @@ class IO_nbody:
             print('Unknown file format. Exit!')
             exit()
 
-        p_dm_list   = []
-        for x_min in np.linspace(0,Lbox-L_chunk,N_chunk):
-            x_max = x_min + L_chunk
-            if (x_max == Lbox):
-                x_max = 1.00001*x_max
-            for y_min in np.linspace(0,Lbox-L_chunk,N_chunk):
-                y_max =y_min + L_chunk
-                if (y_max == Lbox):
-                        y_max = 1.00001*y_max
-                for z_min in np.linspace(0,Lbox-L_chunk,N_chunk):
-                    z_max = z_min + L_chunk
-                    if (z_max == Lbox):
-                            z_max = 1.00001*z_max
-                    ID_dm = np.where((p_dm['x']>=x_min) & (p_dm['x']<x_max) & (p_dm['y']>=y_min) & (p_dm['y']<y_max) & (p_dm['z']>=z_min) & (p_dm['z']<z_max))
-                    p_dm_list += [p_dm[ID_dm]]
+        # Original chunking code kept for reference (commented out):
+        # p_dm_list   = []
+        # for x_min in np.linspace(0,Lbox-L_chunk,N_chunk):
+        #     x_max = x_min + L_chunk
+        #     if (x_max == Lbox):
+        #         x_max = 1.00001*x_max
+        #     for y_min in np.linspace(0,Lbox-L_chunk,N_chunk):
+        #         y_max =y_min + L_chunk
+        #         if (y_max == Lbox):
+        #                 y_max = 1.00001*y_max
+        #         for z_min in np.linspace(0,Lbox-L_chunk,N_chunk):
+        #             z_max = z_min + L_chunk
+        #             if (z_max == Lbox):
+        #                     z_max = 1.00001*z_max
+        #             ID_dm = np.where((p_dm['x']>=x_min) & (p_dm['x']<x_max) & (p_dm['y']>=y_min) & (p_dm['y']<y_max) & (p_dm['z']>=z_min) & (p_dm['z']<z_max))
+        #             p_dm_list += [p_dm[ID_dm]]
+
+        # Fast equivalent chunking: O(Ndm) assignment + grouping by chunk ID.
+        n_total_chunks = int(N_chunk**3)
+        print('Chunking DM particles: start (Ndm = {}, N_chunk = {}, total_chunks = {}).'.format(len(p_dm), N_chunk, n_total_chunks))
+
+        ix = np.floor(p_dm['x'] / L_chunk).astype(np.int64)
+        iy = np.floor(p_dm['y'] / L_chunk).astype(np.int64)
+        iz = np.floor(p_dm['z'] / L_chunk).astype(np.int64)
+        ix = np.clip(ix, 0, N_chunk - 1)
+        iy = np.clip(iy, 0, N_chunk - 1)
+        iz = np.clip(iz, 0, N_chunk - 1)
+
+        flat_chunk_id = ((ix * N_chunk) + iy) * N_chunk + iz
+        order = np.argsort(flat_chunk_id, kind='stable')
+        flat_sorted = flat_chunk_id[order]
+        starts = np.searchsorted(flat_sorted, np.arange(n_total_chunks + 1), side='left')
+
+        p_dm_list = []
+        particles_assigned = 0
+        progress_step = max(1, n_total_chunks // 20)
+        for chunk_id in range(n_total_chunks):
+            i0, i1 = starts[chunk_id], starts[chunk_id + 1]
+            if i1 > i0:
+                p_dm_list += [p_dm[order[i0:i1]]]
+            else:
+                p_dm_list += [p_dm[:0]]
+            particles_assigned += (i1 - i0)
+            if ((chunk_id + 1) % progress_step == 0) or ((chunk_id + 1) == n_total_chunks):
+                frac = 100.0 * (chunk_id + 1) / n_total_chunks
+                print('Chunking DM particles: {}/{} chunks ({:.1f}%), assigned {}/{} particles.'.format(
+                    chunk_id + 1, n_total_chunks, frac, particles_assigned, len(p_dm)))
+
+        print('Chunking DM particles done!')
         pl = 0
         for pp in p_dm_list:
             pl += len(pp)
