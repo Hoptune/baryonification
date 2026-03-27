@@ -9,8 +9,6 @@ from scipy import spatial
 from scipy.interpolate import splrep,splev
 from numpy.lib.recfunctions import append_fields
 
-import schwimmbad
-
 from .constants import *
 from .profiles import *
 

@@ -94,6 +94,25 @@ At read time, the code prints a consistency check using:
 
 with a warning if the relative mismatch exceeds 5%.
 
+## HDF5 Halo Catalog Input/Output
+
+You can provide a custom halo catalog in HDF5 by setting:
+
+```python
+par.files.halofile_format = "hdf5"   # or "catalog-hdf5", "halo-hdf5"
+par.files.halofile_in = "path/to/halo_catalog.hdf5"
+par.files.halofile_out = "path/to/displaced_halo_catalog.hdf5"
+```
+
+Accepted halo HDF5 layout:
+
+- A `halo` group (preferred) or root-level datasets.
+- Required 1D datasets with identical lengths:
+  - `ID`, `IDhost`, `Mvir`, `x`, `y`, `z`, `rvir`, `cvir`
+- Units:
+  - `x`, `y`, `z`, `rvir` in comoving `Mpc/h`
+  - `Mvir` in `Msun/h`
+
 Analytical profiles can be obtained directly without the need to baryonify. Here is a minimal example:
 
 ```python
@@ -145,4 +164,3 @@ plt.show()
 ## Contact
 
 Please contact Aurel Schneider (aurel.schneider@uzh.ch) for questions, remarks, bugs etc.
-
